@@ -9,6 +9,8 @@ type Caption = {
   content: string;
   like_count: number;
   created_datetime_utc: string;
+  image_id: string | null;
+  images: { url: string } | null;
 };
 
 type VoteMap = Record<string, number>;
@@ -33,10 +35,10 @@ export default function ListPage() {
       setUser(user);
       const { data: captionData } = await supabase
         .from("captions")
-        .select("id, content, like_count, created_datetime_utc")
+        .select("id, content, like_count, created_datetime_utc, image_id, images(url)")
         .order("like_count", { ascending: false })
         .limit(20);
-      setCaptions(captionData ?? []);
+      setCaptions((captionData as Caption[]) ?? []);
       if (user) {
         const { data: voteData } = await supabase
           .from("caption_votes")
@@ -183,25 +185,36 @@ export default function ListPage() {
           {loading ? (
             <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" /></div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {captions.map((caption) => {
                 const userVote = votes[caption.id];
+                const imageUrl = caption.images?.url ?? null;
                 return (
-                  <div key={caption.id} className="flex items-start gap-5 p-5 rounded-2xl bg-white/[0.03] border border-white/[0.07] hover:border-white/20 transition-all">
-                    <div className="flex flex-col items-center gap-1 pt-0.5 min-w-[44px]">
-                      <button onClick={() => handleVote(caption.id, 1)} disabled={!user} title={user ? "Upvote" : "Sign in to vote"}
-                        className={`text-xl transition-transform hover:scale-125 disabled:opacity-25 disabled:cursor-not-allowed ${userVote === 1 ? "opacity-100" : "opacity-40 hover:opacity-80"}`}>👍</button>
-                      <span className={`text-sm font-bold tabular-nums ${caption.like_count > 0 ? "text-green-400" : caption.like_count < 0 ? "text-red-400" : "text-white/40"}`}>
-                        {caption.like_count}
-                      </span>
-                      <button onClick={() => handleVote(caption.id, -1)} disabled={!user} title={user ? "Downvote" : "Sign in to vote"}
-                        className={`text-xl transition-transform hover:scale-125 disabled:opacity-25 disabled:cursor-not-allowed ${userVote === -1 ? "opacity-100" : "opacity-40 hover:opacity-80"}`}>👎</button>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white/90 leading-relaxed">"{caption.content}"</p>
-                      <p className="text-white/25 text-xs mt-2">
-                        {new Date(caption.created_datetime_utc).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                      </p>
+                  <div key={caption.id} className="rounded-2xl bg-white/[0.03] border border-white/[0.07] hover:border-white/20 transition-all overflow-hidden">
+                    {imageUrl && (
+                      <img
+                        src={imageUrl}
+                        alt="caption image"
+                        className="w-full max-h-72 object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                    )}
+                    <div className="flex items-start gap-5 p-5">
+                      <div className="flex flex-col items-center gap-1 pt-0.5 min-w-[44px]">
+                        <button onClick={() => handleVote(caption.id, 1)} disabled={!user} title={user ? "Upvote" : "Sign in to vote"}
+                          className={`text-xl transition-transform hover:scale-125 disabled:opacity-25 disabled:cursor-not-allowed ${userVote === 1 ? "opacity-100" : "opacity-40 hover:opacity-80"}`}>👍</button>
+                        <span className={`text-sm font-bold tabular-nums ${caption.like_count > 0 ? "text-green-400" : caption.like_count < 0 ? "text-red-400" : "text-white/40"}`}>
+                          {caption.like_count}
+                        </span>
+                        <button onClick={() => handleVote(caption.id, -1)} disabled={!user} title={user ? "Downvote" : "Sign in to vote"}
+                          className={`text-xl transition-transform hover:scale-125 disabled:opacity-25 disabled:cursor-not-allowed ${userVote === -1 ? "opacity-100" : "opacity-40 hover:opacity-80"}`}>👎</button>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white/90 leading-relaxed">"{caption.content}"</p>
+                        <p className="text-white/25 text-xs mt-2">
+                          {new Date(caption.created_datetime_utc).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 );
