@@ -10,7 +10,7 @@ type Caption = {
   like_count: number;
   created_datetime_utc: string;
   image_id: string | null;
-  images: { url: string } | null;
+  images: { url: string }[] | null;
 };
 
 type VoteMap = Record<string, number>;
@@ -38,7 +38,7 @@ export default function ListPage() {
         .select("id, content, like_count, created_datetime_utc, image_id, images(url)")
         .order("like_count", { ascending: false })
         .limit(20);
-      setCaptions((captionData as Caption[]) ?? []);
+      setCaptions((captionData as unknown as Caption[]) ?? []);
       if (user) {
         const { data: voteData } = await supabase
           .from("caption_votes")
@@ -188,7 +188,9 @@ export default function ListPage() {
             <div className="space-y-4">
               {captions.map((caption) => {
                 const userVote = votes[caption.id];
-                const imageUrl = caption.images?.url ?? null;
+                const imageUrl = Array.isArray(caption.images) && caption.images.length > 0
+                  ? caption.images[0].url
+                  : null;
                 return (
                   <div key={caption.id} className="rounded-2xl bg-white/[0.03] border border-white/[0.07] hover:border-white/20 transition-all overflow-hidden">
                     {imageUrl && (
