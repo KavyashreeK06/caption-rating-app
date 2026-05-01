@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
@@ -12,33 +11,49 @@ type Caption = {
   image_id: string | null;
   images: { url: string } | null;
 };
-
 type VoteMap = Record<string, number>;
+type FlashMap = Record<string, boolean>;
 
 const API_BASE = "https://api.almostcrackd.ai";
+const PAGE_SIZE = 20;
 
 export default function ListPage() {
   const supabase = createClient();
   const [user, setUser] = useState<User | null>(null);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const [votes, setVotes] = useState<VoteMap>({});
+  const [flash, setFlash] = useState<FlashMap>({});
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [uploadStep, setUploadStep] = useState<string | null>(null);
   const [generatedCaptions, setGeneratedCaptions] = useState<string[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const fetchCaptions = async (currentOffset: number, replace: boolean) => {
+    const { data: captionData } = await supabase
+      .from("captions")
+      .select("id, content, like_count, created_datetime_utc, image_id, images(url)")
+      .order("like_count", { ascending: false })
+      .range(currentOffset, currentOffset + PAGE_SIZE - 1);
+    const results = (captionData as unknown as Caption[]) ?? [];
+    if (replace) {
+      setCaptions(results);
+    } else {
+      setCaptions((prev) => [...prev, ...results]);
+    }
+    setHasMore(results.length === PAGE_SIZE);
+    setOffset(currentOffset + results.length);
+  };
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
-      const { data: captionData } = await supabase
-        .from("captions")
-        .select("id, content, like_count, created_datetime_utc, image_id, images(url)")
-        .order("like_count", { ascending: false })
-        .limit(20);
-      setCaptions((captionData as unknown as Caption[]) ?? []);
+      await fetchCaptions(0, true);
       if (user) {
         const { data: voteData } = await supabase
           .from("caption_votes")
@@ -52,6 +67,12 @@ export default function ListPage() {
     };
     init();
   }, []);
+
+  const handleShowMore = async () => {
+    setLoadingMore(true);
+    await fetchCaptions(offset, false);
+    setLoadingMore(false);
+  };
 
   const handleVote = async (captionId: string, value: 1 | -1) => {
     if (!user) { alert("Please sign in to vote."); return; }
@@ -71,6 +92,9 @@ export default function ListPage() {
       if (c.id !== captionId) return c;
       return { ...c, like_count: c.like_count + (value - (existing ?? 0)) };
     }));
+    // Flash confirmation
+    setFlash((prev) => ({ ...prev, [captionId]: true }));
+    setTimeout(() => setFlash((prev) => ({ ...prev, [captionId]: false })), 600);
   };
 
   const handleImageUpload = async (file: File) => {
@@ -82,25 +106,21 @@ export default function ListPage() {
       const token = session?.access_token;
       if (!token) throw new Error("Not authenticated");
       const authHeaders = { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
-
       setUploadStep("Step 1/4: Getting upload URL...");
       const presignRes = await fetch(`${API_BASE}/pipeline/generate-presigned-url`, {
         method: "POST", headers: authHeaders, body: JSON.stringify({ contentType: file.type }),
       });
       if (!presignRes.ok) throw new Error(`Presign failed: ${await presignRes.text()}`);
       const { presignedUrl, cdnUrl } = await presignRes.json();
-
       setUploadStep("Step 2/4: Uploading image...");
       const uploadRes = await fetch(presignedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
       if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
-
       setUploadStep("Step 3/4: Registering image...");
       const registerRes = await fetch(`${API_BASE}/pipeline/upload-image-from-url`, {
         method: "POST", headers: authHeaders, body: JSON.stringify({ imageUrl: cdnUrl, isCommonUse: false }),
       });
       if (!registerRes.ok) throw new Error(`Register failed: ${await registerRes.text()}`);
       const { imageId } = await registerRes.json();
-
       setUploadStep("Step 4/4: Generating captions...");
       const captionRes = await fetch(`${API_BASE}/pipeline/generate-captions`, {
         method: "POST", headers: authHeaders, body: JSON.stringify({ imageId }),
@@ -120,6 +140,15 @@ export default function ListPage() {
 
   return (
     <div className="min-h-screen bg-[#0e0e0f] text-white" style={{ fontFamily: "'Georgia', serif" }}>
+      <style>{`
+        @keyframes voteFlash {
+          0% { transform: scale(1); }
+          40% { transform: scale(1.4); }
+          100% { transform: scale(1); }
+        }
+        .vote-flash { animation: voteFlash 0.3s ease; }
+      `}</style>
+
       <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between max-w-5xl mx-auto">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">😂 Caption Rater</h1>
@@ -142,29 +171,42 @@ export default function ListPage() {
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-10">
         <section>
           <h2 className="text-lg font-semibold mb-1 text-white/80">Generate a Caption</h2>
-          {!user && <p className="text-sm text-white/30 mb-3">Sign in to generate captions from your images</p>}
-          <div
-            onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleImageUpload(f); }}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onClick={() => fileRef.current?.click()}
-            className={`cursor-pointer border-2 border-dashed rounded-2xl p-10 text-center transition-all ${dragOver ? "border-white/60 bg-white/5" : "border-white/20 hover:border-white/40"} ${!user ? "opacity-40 pointer-events-none" : ""}`}
-          >
-            <input ref={fileRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); }} />
-            {uploadStep ? (
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <p className="text-white/60 text-sm">{uploadStep}</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <span className="text-3xl">🖼️</span>
-                <p className="text-white/60 text-sm">Drop an image here or click to upload</p>
-                <p className="text-white/30 text-xs">JPEG, PNG, WEBP, GIF, HEIC supported</p>
-              </div>
-            )}
-          </div>
+          {!user ? (
+            // IMPROVEMENT 1: Clear sign-in CTA inside upload zone instead of passive text
+            <div className="border-2 border-dashed border-white/20 rounded-2xl p-10 text-center">
+              <span className="text-3xl mb-3 block">🖼️</span>
+              <p className="text-white/40 text-sm mb-4">Sign in to generate captions from your images</p>
+              <button
+                onClick={() => supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/auth/callback` } })}
+                className="px-5 py-2 rounded-full bg-white text-black text-sm font-semibold hover:bg-white/90 transition-colors"
+              >
+                Sign in to upload
+              </button>
+            </div>
+          ) : (
+            <div
+              onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleImageUpload(f); }}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onClick={() => fileRef.current?.click()}
+              className={`cursor-pointer border-2 border-dashed rounded-2xl p-10 text-center transition-all ${dragOver ? "border-white/60 bg-white/5" : "border-white/20 hover:border-white/40"}`}
+            >
+              <input ref={fileRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); }} />
+              {uploadStep ? (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <p className="text-white/60 text-sm">{uploadStep}</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-3xl">🖼️</span>
+                  <p className="text-white/60 text-sm">Drop an image here or click to upload</p>
+                  <p className="text-white/30 text-xs">JPEG, PNG, WEBP, GIF, HEIC supported</p>
+                </div>
+              )}
+            </div>
+          )}
           {generatedCaptions.length > 0 && (
             <div className="mt-4 space-y-3">
               <p className="text-xs text-white/40 uppercase tracking-widest">Generated Captions</p>
@@ -185,41 +227,69 @@ export default function ListPage() {
           {loading ? (
             <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" /></div>
           ) : (
-            <div className="space-y-4">
-              {captions.map((caption) => {
-                const userVote = votes[caption.id];
-                const imageUrl = caption.images?.url ?? null;
-                return (
-                  <div key={caption.id} className="rounded-2xl bg-white/[0.03] border border-white/[0.07] hover:border-white/20 transition-all overflow-hidden">
-                    {imageUrl && (
-                      <img
-                        src={imageUrl}
-                        alt="caption image"
-                        className="w-full max-h-72 object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                      />
-                    )}
-                    <div className="flex items-start gap-5 p-5">
-                      <div className="flex flex-col items-center gap-1 pt-0.5 min-w-[44px]">
-                        <button onClick={() => handleVote(caption.id, 1)} disabled={!user} title={user ? "Upvote" : "Sign in to vote"}
-                          className={`text-xl transition-transform hover:scale-125 disabled:opacity-25 disabled:cursor-not-allowed ${userVote === 1 ? "opacity-100" : "opacity-40 hover:opacity-80"}`}>👍</button>
-                        <span className={`text-sm font-bold tabular-nums ${caption.like_count > 0 ? "text-green-400" : caption.like_count < 0 ? "text-red-400" : "text-white/40"}`}>
-                          {caption.like_count}
-                        </span>
-                        <button onClick={() => handleVote(caption.id, -1)} disabled={!user} title={user ? "Downvote" : "Sign in to vote"}
-                          className={`text-xl transition-transform hover:scale-125 disabled:opacity-25 disabled:cursor-not-allowed ${userVote === -1 ? "opacity-100" : "opacity-40 hover:opacity-80"}`}>👎</button>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white/90 leading-relaxed">"{caption.content}"</p>
-                        <p className="text-white/25 text-xs mt-2">
-                          {new Date(caption.created_datetime_utc).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                        </p>
+            <>
+              <div className="space-y-4">
+                {captions.map((caption) => {
+                  const userVote = votes[caption.id];
+                  const imageUrl = caption.images?.url ?? null;
+                  const isFlashing = flash[caption.id];
+                  return (
+                    <div key={caption.id} className="rounded-2xl bg-white/[0.03] border border-white/[0.07] hover:border-white/20 transition-all overflow-hidden">
+                      {imageUrl && (
+                        <img src={imageUrl} alt="caption image" className="w-full max-h-72 object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      )}
+                      <div className="flex items-start gap-5 p-5">
+                        <div className="flex flex-col items-center gap-1 pt-0.5 min-w-[44px]">
+                          {/* IMPROVEMENT 2: Vote confirmation flash animation */}
+                          <button onClick={() => handleVote(caption.id, 1)} disabled={!user}
+                            title={user ? "Upvote" : "Sign in to vote"}
+                            className={`text-xl transition-all disabled:opacity-25 disabled:cursor-not-allowed ${userVote === 1 ? "opacity-100" : "opacity-40 hover:opacity-80"} ${isFlashing && userVote === 1 ? "vote-flash" : ""}`}>
+                            👍
+                          </button>
+                          <span className={`text-sm font-bold tabular-nums transition-colors ${isFlashing ? "text-white scale-110" : caption.like_count > 0 ? "text-green-400" : caption.like_count < 0 ? "text-red-400" : "text-white/40"}`}>
+                            {caption.like_count}
+                          </span>
+                          <button onClick={() => handleVote(caption.id, -1)} disabled={!user}
+                            title={user ? "Downvote" : "Sign in to vote"}
+                            className={`text-xl transition-all disabled:opacity-25 disabled:cursor-not-allowed ${userVote === -1 ? "opacity-100" : "opacity-40 hover:opacity-80"} ${isFlashing && userVote === -1 ? "vote-flash" : ""}`}>
+                            👎
+                          </button>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white/90 leading-relaxed">"{caption.content}"</p>
+                          <p className="text-white/25 text-xs mt-2">
+                            {new Date(caption.created_datetime_utc).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+
+              {/* IMPROVEMENT 3: Show more button */}
+              {hasMore && (
+                <div className="flex justify-center mt-8">
+                  <button
+                    onClick={handleShowMore}
+                    disabled={loadingMore}
+                    className="px-6 py-3 rounded-full border border-white/20 text-white/60 text-sm hover:border-white/40 hover:text-white/80 transition-all disabled:opacity-40"
+                  >
+                    {loadingMore ? (
+                      <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                        Loading...
+                      </span>
+                    ) : "Show more captions"}
+                  </button>
+                </div>
+              )}
+
+              {!hasMore && captions.length > 0 && (
+                <p className="text-center text-white/20 text-xs mt-8">You've seen all {captions.length} captions</p>
+              )}
+            </>
           )}
           {!user && !loading && (
             <p className="text-center text-white/30 text-sm mt-6">Sign in with Google to vote on captions</p>
