@@ -40,11 +40,8 @@ export default function ListPage() {
       .order("like_count", { ascending: false })
       .range(currentOffset, currentOffset + PAGE_SIZE - 1);
     const results = (captionData as unknown as Caption[]) ?? [];
-    if (replace) {
-      setCaptions(results);
-    } else {
-      setCaptions((prev) => [...prev, ...results]);
-    }
+    if (replace) setCaptions(results);
+    else setCaptions((prev) => [...prev, ...results]);
     setHasMore(results.length === PAGE_SIZE);
     setOffset(currentOffset + results.length);
   };
@@ -92,13 +89,12 @@ export default function ListPage() {
       if (c.id !== captionId) return c;
       return { ...c, like_count: c.like_count + (value - (existing ?? 0)) };
     }));
-    // Flash confirmation
     setFlash((prev) => ({ ...prev, [captionId]: true }));
     setTimeout(() => setFlash((prev) => ({ ...prev, [captionId]: false })), 600);
   };
 
   const handleImageUpload = async (file: File) => {
-    if (!user) { alert("Please sign in to generate captions."); return; }
+    if (!user) return;
     setUploadError(null);
     setGeneratedCaptions([]);
     try {
@@ -106,22 +102,22 @@ export default function ListPage() {
       const token = session?.access_token;
       if (!token) throw new Error("Not authenticated");
       const authHeaders = { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
-      setUploadStep("Step 1/4: Getting upload URL...");
+      setUploadStep("Getting upload URL...");
       const presignRes = await fetch(`${API_BASE}/pipeline/generate-presigned-url`, {
         method: "POST", headers: authHeaders, body: JSON.stringify({ contentType: file.type }),
       });
       if (!presignRes.ok) throw new Error(`Presign failed: ${await presignRes.text()}`);
       const { presignedUrl, cdnUrl } = await presignRes.json();
-      setUploadStep("Step 2/4: Uploading image...");
+      setUploadStep("Uploading image...");
       const uploadRes = await fetch(presignedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
       if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
-      setUploadStep("Step 3/4: Registering image...");
+      setUploadStep("Registering image...");
       const registerRes = await fetch(`${API_BASE}/pipeline/upload-image-from-url`, {
         method: "POST", headers: authHeaders, body: JSON.stringify({ imageUrl: cdnUrl, isCommonUse: false }),
       });
       if (!registerRes.ok) throw new Error(`Register failed: ${await registerRes.text()}`);
       const { imageId } = await registerRes.json();
-      setUploadStep("Step 4/4: Generating captions...");
+      setUploadStep("Generating captions...");
       const captionRes = await fetch(`${API_BASE}/pipeline/generate-captions`, {
         method: "POST", headers: authHeaders, body: JSON.stringify({ imageId }),
       });
@@ -139,128 +135,167 @@ export default function ListPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0e0e0f] text-white" style={{ fontFamily: "'Georgia', serif" }}>
+    <div style={{ minHeight: "100vh", background: "#0a0a0e", color: "#f0ebe4", fontFamily: "'Georgia', serif" }}>
       <style>{`
-        @keyframes voteFlash {
-          0% { transform: scale(1); }
-          40% { transform: scale(1.4); }
-          100% { transform: scale(1); }
-        }
-        .vote-flash { animation: voteFlash 0.3s ease; }
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
+        @keyframes voteFlash { 0% { transform: scale(1); } 40% { transform: scale(1.5); } 100% { transform: scale(1); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .vote-flash { animation: voteFlash 0.35s cubic-bezier(.36,.07,.19,.97); }
+        .fade-in { animation: fadeIn 0.4s ease forwards; }
+        .card:hover { border-color: rgba(255,255,255,0.12) !important; transform: translateY(-1px); }
+        .card { transition: all 0.2s ease; }
+        .upload-zone:hover { border-color: rgba(255,107,53,0.5) !important; background: rgba(255,107,53,0.04) !important; }
       `}</style>
 
-      <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between max-w-5xl mx-auto">
+      {/* Header */}
+      <header style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", maxWidth: 1000, margin: "0 auto" }}>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">😂 Caption Rater</h1>
-          <p className="text-sm text-white/40 mt-0.5">Vote on the funniest captions</p>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#ff6b35", letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 4 }}>AlmostCrackd</div>
+          <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: 24, fontWeight: 800, color: "#f0ebe4", margin: 0, lineHeight: 1 }}>Caption Rater</h1>
+          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "4px 0 0" }}>Vote on the funniest captions</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {user ? (
             <>
-              <span className="text-sm text-white/50 hidden sm:block">{user.email}</span>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{user.email}</span>
               <button onClick={async () => { await supabase.auth.signOut(); setUser(null); setVotes({}); }}
-                className="text-sm px-4 py-2 rounded-full border border-white/20 hover:border-white/40 transition-colors">Sign out</button>
+                style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, padding: "8px 16px", background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.5)", borderRadius: 100, cursor: "pointer", transition: "all 0.15s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.4)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}>
+                Sign out
+              </button>
             </>
           ) : (
             <button onClick={() => supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/auth/callback` } })}
-              className="text-sm px-5 py-2 rounded-full bg-white text-black font-semibold hover:bg-white/90 transition-colors">Sign in with Google</button>
+              style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, padding: "10px 20px", background: "#f0ebe4", color: "#0a0a0e", borderRadius: 100, border: "none", fontWeight: 600, cursor: "pointer", transition: "opacity 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+              Sign in with Google
+            </button>
           )}
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-10 space-y-10">
-        <section>
-          <h2 className="text-lg font-semibold mb-1 text-white/80">Generate a Caption</h2>
+      <main style={{ maxWidth: 1000, margin: "0 auto", padding: "40px 32px" }}>
+
+        {/* Upload section */}
+        <section style={{ marginBottom: 56 }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#ff6b35", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>Generate</div>
+            <h2 style={{ fontFamily: "'Syne', sans-serif", fontSize: 20, fontWeight: 700, color: "#f0ebe4", margin: 0 }}>Create a Caption</h2>
+          </div>
+
           {!user ? (
-            // IMPROVEMENT 1: Clear sign-in CTA inside upload zone instead of passive text
-            <div className="border-2 border-dashed border-white/20 rounded-2xl p-10 text-center">
-              <span className="text-3xl mb-3 block">🖼️</span>
-              <p className="text-white/40 text-sm mb-4">Sign in to generate captions from your images</p>
-              <button
-                onClick={() => supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/auth/callback` } })}
-                className="px-5 py-2 rounded-full bg-white text-black text-sm font-semibold hover:bg-white/90 transition-colors"
-              >
+            <div style={{ border: "1.5px dashed rgba(255,255,255,0.12)", borderRadius: 16, padding: "48px 32px", textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>🖼️</div>
+              <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "rgba(255,255,255,0.3)", marginBottom: 20 }}>Sign in to generate captions from your images</p>
+              <button onClick={() => supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/auth/callback` } })}
+                style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, padding: "10px 24px", background: "#ff6b35", color: "#fff", border: "none", borderRadius: 100, fontWeight: 600, cursor: "pointer", transition: "opacity 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+                onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
                 Sign in to upload
               </button>
             </div>
           ) : (
-            <div
+            <div className="upload-zone"
               onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleImageUpload(f); }}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onClick={() => fileRef.current?.click()}
-              className={`cursor-pointer border-2 border-dashed rounded-2xl p-10 text-center transition-all ${dragOver ? "border-white/60 bg-white/5" : "border-white/20 hover:border-white/40"}`}
-            >
-              <input ref={fileRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic" className="hidden"
+              style={{ cursor: "pointer", border: `1.5px dashed ${dragOver ? "rgba(255,107,53,0.6)" : "rgba(255,255,255,0.12)"}`, borderRadius: 16, padding: "48px 32px", textAlign: "center", background: dragOver ? "rgba(255,107,53,0.05)" : "transparent", transition: "all 0.2s" }}>
+              <input ref={fileRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic" style={{ display: "none" }}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); }} />
               {uploadStep ? (
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <p className="text-white/60 text-sm">{uploadStep}</p>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 28, height: 28, border: "2px solid rgba(255,107,53,0.3)", borderTopColor: "#ff6b35", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                  <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#ff6b35" }}>{uploadStep}</p>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <span className="text-3xl">🖼️</span>
-                  <p className="text-white/60 text-sm">Drop an image here or click to upload</p>
-                  <p className="text-white/30 text-xs">JPEG, PNG, WEBP, GIF, HEIC supported</p>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 32 }}>🖼️</span>
+                  <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "rgba(255,255,255,0.4)" }}>Drop an image here or click to upload</p>
+                  <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.2)" }}>JPEG, PNG, WEBP, GIF, HEIC supported</p>
                 </div>
               )}
             </div>
           )}
+
           {generatedCaptions.length > 0 && (
-            <div className="mt-4 space-y-3">
-              <p className="text-xs text-white/40 uppercase tracking-widest">Generated Captions</p>
-              {generatedCaptions.map((cap, i) => (
-                <div key={i} className="p-5 rounded-2xl bg-white/5 border border-white/10">
-                  <p className="text-white text-base leading-relaxed">"{cap}"</p>
-                </div>
-              ))}
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 12 }}>Generated</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {generatedCaptions.map((cap, i) => (
+                  <div key={i} className="fade-in" style={{ padding: "16px 20px", borderRadius: 12, background: "rgba(255,107,53,0.06)", border: "1px solid rgba(255,107,53,0.15)" }}>
+                    <p style={{ fontFamily: "'Georgia', serif", fontSize: 15, color: "#f0ebe4", lineHeight: 1.6, margin: 0 }}>"{cap}"</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
+
           {uploadError && (
-            <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{uploadError}</div>
+            <div style={{ marginTop: 16, padding: "14px 18px", borderRadius: 10, background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.2)", fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#f87171" }}>
+              {uploadError}
+            </div>
           )}
         </section>
 
+        {/* Captions feed */}
         <section>
-          <h2 className="text-lg font-semibold mb-4 text-white/80">Top Captions</h2>
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#ff6b35", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>Leaderboard</div>
+            <h2 style={{ fontFamily: "'Syne', sans-serif", fontSize: 20, fontWeight: 700, color: "#f0ebe4", margin: 0 }}>Top Captions</h2>
+          </div>
+
           {loading ? (
-            <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" /></div>
+            <div style={{ display: "flex", justifyContent: "center", padding: "80px 0" }}>
+              <div style={{ width: 28, height: 28, border: "2px solid rgba(255,255,255,0.1)", borderTopColor: "rgba(255,255,255,0.6)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            </div>
           ) : (
             <>
-              <div className="space-y-4">
-                {captions.map((caption) => {
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {captions.map((caption, idx) => {
                   const userVote = votes[caption.id];
                   const imageUrl = caption.images?.url ?? null;
                   const isFlashing = flash[caption.id];
                   return (
-                    <div key={caption.id} className="rounded-2xl bg-white/[0.03] border border-white/[0.07] hover:border-white/20 transition-all overflow-hidden">
+                    <div key={caption.id} className="card fade-in" style={{ borderRadius: 16, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden" }}>
                       {imageUrl && (
-                        <img src={imageUrl} alt="caption image" className="w-full max-h-72 object-cover"
+                        <img src={imageUrl} alt="" style={{ width: "100%", maxHeight: 280, objectFit: "cover", display: "block" }}
                           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                       )}
-                      <div className="flex items-start gap-5 p-5">
-                        <div className="flex flex-col items-center gap-1 pt-0.5 min-w-[44px]">
-                          {/* IMPROVEMENT 2: Vote confirmation flash animation */}
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 20, padding: "20px 24px" }}>
+                        {/* Rank */}
+                        <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 28, fontWeight: 800, color: "rgba(255,255,255,0.06)", flexShrink: 0, width: 36, textAlign: "center", lineHeight: 1 }}>
+                          {idx + 1}
+                        </div>
+
+                        {/* Caption text */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontFamily: "'Georgia', serif", fontSize: 16, color: "rgba(255,255,255,0.88)", lineHeight: 1.65, margin: "0 0 8px" }}>"{caption.content}"</p>
+                          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.2)", margin: 0 }}>
+                            {new Date(caption.created_datetime_utc).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                          </p>
+                        </div>
+
+                        {/* Vote buttons */}
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
                           <button onClick={() => handleVote(caption.id, 1)} disabled={!user}
                             title={user ? "Upvote" : "Sign in to vote"}
-                            className={`text-xl transition-all disabled:opacity-25 disabled:cursor-not-allowed ${userVote === 1 ? "opacity-100" : "opacity-40 hover:opacity-80"} ${isFlashing && userVote === 1 ? "vote-flash" : ""}`}>
+                            className={isFlashing && userVote === 1 ? "vote-flash" : ""}
+                            style={{ fontSize: 20, background: "none", border: "none", cursor: user ? "pointer" : "not-allowed", opacity: userVote === 1 ? 1 : 0.35, transition: "opacity 0.15s", padding: "4px" }}>
                             👍
                           </button>
-                          <span className={`text-sm font-bold tabular-nums transition-colors ${isFlashing ? "text-white scale-110" : caption.like_count > 0 ? "text-green-400" : caption.like_count < 0 ? "text-red-400" : "text-white/40"}`}>
+                          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 700, color: isFlashing ? "#fff" : caption.like_count > 0 ? "#34d399" : caption.like_count < 0 ? "#f87171" : "rgba(255,255,255,0.3)", transition: "color 0.2s", minWidth: 28, textAlign: "center" }}>
                             {caption.like_count}
                           </span>
                           <button onClick={() => handleVote(caption.id, -1)} disabled={!user}
                             title={user ? "Downvote" : "Sign in to vote"}
-                            className={`text-xl transition-all disabled:opacity-25 disabled:cursor-not-allowed ${userVote === -1 ? "opacity-100" : "opacity-40 hover:opacity-80"} ${isFlashing && userVote === -1 ? "vote-flash" : ""}`}>
+                            className={isFlashing && userVote === -1 ? "vote-flash" : ""}
+                            style={{ fontSize: 20, background: "none", border: "none", cursor: user ? "pointer" : "not-allowed", opacity: userVote === -1 ? 1 : 0.35, transition: "opacity 0.15s", padding: "4px" }}>
                             👎
                           </button>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white/90 leading-relaxed">"{caption.content}"</p>
-                          <p className="text-white/25 text-xs mt-2">
-                            {new Date(caption.created_datetime_utc).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                          </p>
                         </div>
                       </div>
                     </div>
@@ -268,31 +303,31 @@ export default function ListPage() {
                 })}
               </div>
 
-              {/* IMPROVEMENT 3: Show more button */}
               {hasMore && (
-                <div className="flex justify-center mt-8">
-                  <button
-                    onClick={handleShowMore}
-                    disabled={loadingMore}
-                    className="px-6 py-3 rounded-full border border-white/20 text-white/60 text-sm hover:border-white/40 hover:text-white/80 transition-all disabled:opacity-40"
-                  >
+                <div style={{ display: "flex", justifyContent: "center", marginTop: 32 }}>
+                  <button onClick={handleShowMore} disabled={loadingMore}
+                    style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, padding: "12px 28px", background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.5)", borderRadius: 100, cursor: "pointer", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 8 }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.35)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}>
                     {loadingMore ? (
-                      <span className="flex items-center gap-2">
-                        <span className="w-4 h-4 border border-white/30 border-t-white rounded-full animate-spin inline-block" />
-                        Loading...
-                      </span>
+                      <><span style={{ width: 12, height: 12, border: "1.5px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.7)", borderRadius: "50%", display: "inline-block", animation: "spin 0.8s linear infinite" }} /> Loading...</>
                     ) : "Show more captions"}
                   </button>
                 </div>
               )}
 
               {!hasMore && captions.length > 0 && (
-                <p className="text-center text-white/20 text-xs mt-8">You've seen all {captions.length} captions</p>
+                <p style={{ textAlign: "center", fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.15)", marginTop: 32, letterSpacing: "0.1em" }}>
+                  ALL {captions.length} CAPTIONS SHOWN
+                </p>
               )}
             </>
           )}
+
           {!user && !loading && (
-            <p className="text-center text-white/30 text-sm mt-6">Sign in with Google to vote on captions</p>
+            <p style={{ textAlign: "center", fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "rgba(255,255,255,0.2)", marginTop: 24 }}>
+              Sign in with Google to vote on captions
+            </p>
           )}
         </section>
       </main>
