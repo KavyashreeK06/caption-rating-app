@@ -31,6 +31,7 @@ export default function ListPage() {
   const [generatedCaptions, setGeneratedCaptions] = useState<string[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchCaptions = async (currentOffset: number, replace: boolean) => {
@@ -97,6 +98,12 @@ export default function ListPage() {
     if (!user) return;
     setUploadError(null);
     setGeneratedCaptions([]);
+    setPreviewUrl(null);
+
+    // Show local preview immediately
+    const localUrl = URL.createObjectURL(file);
+    setPreviewUrl(localUrl);
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -221,16 +228,22 @@ export default function ListPage() {
             </div>
           )}
 
-          {generatedCaptions.length > 0 && (
-            <div style={{ marginTop: 20 }}>
-              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 12 }}>Generated</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {generatedCaptions.map((cap, i) => (
-                  <div key={i} className="fade-in" style={{ padding: "16px 20px", borderRadius: 12, background: "rgba(255,107,53,0.06)", border: "1px solid rgba(255,107,53,0.15)" }}>
-                    <p style={{ fontFamily: "'Georgia', serif", fontSize: 15, color: "#f0ebe4", lineHeight: 1.6, margin: 0 }}>"{cap}"</p>
-                  </div>
-                ))}
-              </div>
+          {/* Image preview + generated captions */}
+          {(generatedCaptions.length > 0 || (previewUrl && uploadStep)) && (
+            <div className="fade-in" style={{ marginTop: 20, borderRadius: 16, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
+              {previewUrl && (
+                <img src={previewUrl} alt="Uploaded" style={{ width: "100%", maxHeight: 320, objectFit: "cover", display: "block" }} />
+              )}
+              {generatedCaptions.length > 0 && (
+                <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 4 }}>Generated Captions</div>
+                  {generatedCaptions.map((cap, i) => (
+                    <div key={i} style={{ padding: "14px 18px", borderRadius: 10, background: "rgba(255,107,53,0.06)", border: "1px solid rgba(255,107,53,0.15)" }}>
+                      <p style={{ fontFamily: "'Georgia', serif", fontSize: 15, color: "#f0ebe4", lineHeight: 1.6, margin: 0 }}>"{cap}"</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -266,20 +279,15 @@ export default function ListPage() {
                           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                       )}
                       <div style={{ display: "flex", alignItems: "flex-start", gap: 20, padding: "20px 24px" }}>
-                        {/* Rank */}
                         <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 28, fontWeight: 800, color: "rgba(255,255,255,0.06)", flexShrink: 0, width: 36, textAlign: "center", lineHeight: 1 }}>
                           {idx + 1}
                         </div>
-
-                        {/* Caption text */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ fontFamily: "'Georgia', serif", fontSize: 16, color: "rgba(255,255,255,0.88)", lineHeight: 1.65, margin: "0 0 8px" }}>"{caption.content}"</p>
                           <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.2)", margin: 0 }}>
                             {new Date(caption.created_datetime_utc).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
                           </p>
                         </div>
-
-                        {/* Vote buttons */}
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
                           <button onClick={() => handleVote(caption.id, 1)} disabled={!user}
                             title={user ? "Upvote" : "Sign in to vote"}
